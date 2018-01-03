@@ -874,8 +874,7 @@ class TestIncRepair(Tester):
             self.assertNoRepairedSSTables(node, 'ks')
 
         # only repair the partition k=0
-        token = Murmur3Token.from_key(str(bytearray([0,0,0,0])))
-        # import ipdb; ipdb.set_trace()
+        token = Murmur3Token.from_key(bytes([0,0,0,0]))
         # run with force flag
         node1.repair(options=['ks', '-st', str(token.value - 1), '-et', str(token.value)])
 
