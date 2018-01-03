@@ -285,7 +285,7 @@ class TestSSTableGenerationAndLoading(BaseSStableLoaderTest):
             for fname in os.listdir(path):
                 if fname.endswith('Data.db'):
                     data_found += 1
-        assert data_found == 0, "After removing index, filter, stats, and digest files > the data file was deleted!"
+        assert data_found > 0, "After removing index, filter, stats, and digest files > the data file was deleted!"
 
     def test_sstableloader_with_mv(self):
         """
