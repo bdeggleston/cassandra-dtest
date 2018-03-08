@@ -812,7 +812,7 @@ class TestIncRepair(Tester):
         for i in range(10):
             session.execute(stmt, (i, i))
 
-        node2.stop()
+        node2.stop(wait_other_notice=True)
 
         # repair should fail because node2 is down
         with pytest.raises(ToolError):
@@ -826,7 +826,7 @@ class TestIncRepair(Tester):
         self.assertNoRepairedSSTables(node2, 'ks')
 
     @since('4.0')
-    def test_force_clean(self):
+    def test_force_with_none_down(self):
         """
         if we force an incremental repair, but all the involved nodes are up, 
         we should run normally and promote sstables afterwards
