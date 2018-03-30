@@ -350,10 +350,9 @@ class StorageProxy(object):
     def speculated_data_repair(self):
         return self._get_metric("SpeculatedRepair")
 
-    def get_column_family_metric(self, keyspace, table, metric, attr="Count"):
-        mbean = make_mbean("metrics", keyspace=keyspace, scope=table, type="ColumnFamily", name=metric)
+    def get_table_metric(self, keyspace, table, metric, attr="Count"):
+        mbean = make_mbean("metrics", keyspace=keyspace, scope=table, type="Table", name=metric)
         return self.jmx.read_attribute(mbean, attr)
-
 
     def __enter__(self):
         """ For contextmanager-style usage. """
@@ -364,33 +363,29 @@ class StorageProxy(object):
         """ For contextmanager-style usage. """
         self.stop()
 
+
 class TestSpeculativeReadRepair(Tester):
 
     @pytest.fixture(scope='function', autouse=True)
     def fixture_set_cluster_settings(self, fixture_dtest_setup):
         cluster = fixture_dtest_setup.cluster
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                       'dynamic_snitch': False,
-                                                       'write_request_timeout_in_ms': 500,
-                                                       'read_request_timeout_in_ms': 500})
-        cluster.populate(3, install_byteman=True).start(wait_for_binary_proto=True)
+                                                  'dynamic_snitch': False,
+                                                  'write_request_timeout_in_ms': 500,
+                                                  'read_request_timeout_in_ms': 500})
+        cluster.populate(3, install_byteman=True, debug=True).start(wait_for_binary_proto=True,
+                                                                    jvm_args=['-XX:-PerfDisableSharedMem'])
         session = fixture_dtest_setup.patient_exclusive_cql_connection(cluster.nodelist()[0], timeout=2)
 
         session.execute("CREATE KEYSPACE ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3}")
-        session.execute("CREATE TABLE ks.tbl (k int, c int, v int, primary key (k, c)) WITH speculative_retry = '100ms';")
+        session.execute("CREATE TABLE ks.tbl (k int, c int, v int, primary key (k, c)) "
+                        "WITH speculative_retry = '100ms' "
+                        "AND read_repair_chance = 0.0 "
+                        "AND dclocal_read_repair_chance = 0.0;")
 
-    # def setUp(self):
-    #     self.temp_files = set()
-    #     Tester.setUp(self)
-    #     self.cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-    #                                                    'dynamic_snitch': False,
-    #                                                    'write_request_timeout_in_ms': 500,
-    #                                                    'read_request_timeout_in_ms': 500})
-    #     self.cluster.populate(3, install_byteman=True).start(wait_for_binary_proto=True)
-    #     session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0], timeout=2)
-    #
-    #     session.execute("CREATE KEYSPACE ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3}")
-    #     session.execute("CREATE TABLE ks.tbl (k int, c int, v int, primary key (k, c)) WITH speculative_retry = '100ms';")
+    def get_cql_connection(self, node, **kwargs):
+        return self.patient_exclusive_cql_connection(node, retry_policy=None, **kwargs)
+
 
     def test_failed_read_repair(self):
         """
@@ -401,7 +396,7 @@ class TestSpeculativeReadRepair(Tester):
         assert isinstance(node2, Node)
         assert isinstance(node3, Node)
 
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
+        session = self.get_cql_connection(node1, timeout=2)
         session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 0, 1)"))
 
         node2.byteman_submit(['./byteman/read_repair/stop_writes.btm'])
@@ -413,16 +408,18 @@ class TestSpeculativeReadRepair(Tester):
             session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 1, 2)"))
 
         node2.byteman_submit(['./byteman/read_repair/sorted_live_endpoints.btm'])
+        session = self.get_cql_connection(node2)
         with StorageProxy(node2) as storage_proxy:
-            self.assertEqual(storage_proxy.blocking_read_repair, 0)
+            assert storage_proxy.blocking_read_repair == 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
-            session = self.patient_exclusive_cql_connection(node2)
-            with self.assertRaises(ReadTimeout):
+            with raises(ReadTimeout):
                 session.execute(quorum("SELECT * FROM ks.tbl WHERE k=1"))
 
-            self.assertGreater(storage_proxy.blocking_read_repair, 0)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertGreater(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.blocking_read_repair > 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair > 0
 
     def test_normal_read_repair(self):
         """
@@ -433,7 +430,7 @@ class TestSpeculativeReadRepair(Tester):
         assert isinstance(node1, Node)
         assert isinstance(node2, Node)
         assert isinstance(node3, Node)
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
+        session = self.get_cql_connection(node1, timeout=2)
 
         session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 0, 1)"))
 
@@ -447,18 +444,18 @@ class TestSpeculativeReadRepair(Tester):
 
         node2.byteman_submit(['./byteman/read_repair/sorted_live_endpoints.btm'])
         with StorageProxy(node2) as storage_proxy:
-            self.assertEqual(storage_proxy.blocking_read_repair, 0)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.blocking_read_repair == 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
-            session = self.patient_exclusive_cql_connection(node2)
+            session = self.get_cql_connection(node2)
             expected = [kcv(1, 0, 1), kcv(1, 1, 2)]
             results = session.execute(quorum("SELECT * FROM ks.tbl WHERE k=1"))
-            self.assertEqual(listify(results), expected)
+            assert listify(results) == expected
 
-            self.assertEqual(storage_proxy.blocking_read_repair, 1)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.blocking_read_repair == 1
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
     def test_speculative_data_request(self):
         """ If one node doesn't respond to a full data request, it should query the other """
@@ -466,7 +463,7 @@ class TestSpeculativeReadRepair(Tester):
         assert isinstance(node1, Node)
         assert isinstance(node2, Node)
         assert isinstance(node3, Node)
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
+        session = self.get_cql_connection(node1, timeout=2)
 
         session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 0, 1)"))
 
@@ -480,18 +477,18 @@ class TestSpeculativeReadRepair(Tester):
 
         node1.byteman_submit(['./byteman/read_repair/sorted_live_endpoints.btm'])
         with StorageProxy(node1) as storage_proxy:
-            self.assertEqual(storage_proxy.blocking_read_repair, 0)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.blocking_read_repair == 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
-            session = self.patient_exclusive_cql_connection(node1)
+            session = self.get_cql_connection(node1)
             node2.byteman_submit(['./byteman/read_repair/stop_data_reads.btm'])
             results = session.execute(quorum("SELECT * FROM ks.tbl WHERE k=1"))
-            self.assertEqual(listify(results), [kcv(1, 0, 1), kcv(1, 1, 2)])
+            assert listify(results) == [kcv(1, 0, 1), kcv(1, 1, 2)]
 
-            self.assertEqual(storage_proxy.blocking_read_repair, 1)
-            self.assertEqual(storage_proxy.speculated_data_request, 1)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.blocking_read_repair == 1
+            assert storage_proxy.speculated_data_request == 1
+            assert storage_proxy.speculated_data_repair == 0
 
     def test_speculative_write(self):
         """ if one node doesn't respond to a read repair mutation, it should be sent to the remaining node """
@@ -503,7 +500,7 @@ class TestSpeculativeReadRepair(Tester):
         assert isinstance(node1, Node)
         assert isinstance(node2, Node)
         assert isinstance(node3, Node)
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
+        session = self.get_cql_connection(node1, timeout=2)
 
         session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 0, 1)"))
 
@@ -517,18 +514,18 @@ class TestSpeculativeReadRepair(Tester):
 
         node1.byteman_submit(['./byteman/read_repair/sorted_live_endpoints.btm'])
         with StorageProxy(node1) as storage_proxy:
-            self.assertEqual(storage_proxy.blocking_read_repair, 0)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.blocking_read_repair == 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
-            session = self.patient_exclusive_cql_connection(node1)
+            session = self.get_cql_connection(node1)
             expected = [kcv(1, 0, 1), kcv(1, 1, 2)]
             results = session.execute(quorum("SELECT * FROM ks.tbl WHERE k=1"))
-            self.assertEqual(listify(results), expected)
+            assert listify(results) == expected
 
-            self.assertEqual(storage_proxy.blocking_read_repair, 1)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 1)
+            assert storage_proxy.blocking_read_repair == 1
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 1
 
     def test_quorum_requirement(self):
         """
@@ -538,7 +535,7 @@ class TestSpeculativeReadRepair(Tester):
         assert isinstance(node1, Node)
         assert isinstance(node2, Node)
         assert isinstance(node3, Node)
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
+        session = self.get_cql_connection(node1, timeout=2)
 
         session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 0, 1)"))
 
@@ -559,21 +556,20 @@ class TestSpeculativeReadRepair(Tester):
         node3.byteman_submit(['./byteman/read_repair/stop_rr_writes.btm'])
 
         with StorageProxy(node1) as storage_proxy:
-            self.assertEqual(storage_proxy.get_column_family_metric("ks", "tbl", "SpeculativeRetries"), 0)
-            self.assertEqual(storage_proxy.blocking_read_repair, 0)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.get_table_metric("ks", "tbl", "SpeculativeRetries") == 0
+            assert storage_proxy.blocking_read_repair == 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
-            session = self.patient_exclusive_cql_connection(node1)
+            session = self.get_cql_connection(node1)
             expected = [kcv(1, 0, 1), kcv(1, 1, 2)]
-            # import pdb; pdb.set_trace()
             results = session.execute(quorum("SELECT * FROM ks.tbl WHERE k=1"))
-            self.assertEqual(listify(results), expected)
+            assert listify(results) == expected
 
-            self.assertEqual(storage_proxy.get_column_family_metric("ks", "tbl", "SpeculativeRetries"), 0)
-            self.assertEqual(storage_proxy.blocking_read_repair, 1)
-            self.assertEqual(storage_proxy.speculated_data_request, 1)
-            self.assertEqual(storage_proxy.speculated_data_repair, 1)
+            assert storage_proxy.get_table_metric("ks", "tbl", "SpeculativeRetries") == 0
+            assert storage_proxy.blocking_read_repair == 1
+            assert storage_proxy.speculated_data_request == 1
+            assert storage_proxy.speculated_data_repair == 1
 
     def test_quorum_requirement_on_speculated_read(self):
         """
@@ -583,7 +579,7 @@ class TestSpeculativeReadRepair(Tester):
         assert isinstance(node1, Node)
         assert isinstance(node2, Node)
         assert isinstance(node3, Node)
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
+        session = self.get_cql_connection(node1, timeout=2)
 
         session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (1, 0, 1)"))
 
@@ -604,38 +600,21 @@ class TestSpeculativeReadRepair(Tester):
         node2.byteman_submit(['./byteman/read_repair/stop_rr_writes.btm'])
 
         with StorageProxy(node1) as storage_proxy:
-            self.assertEqual(storage_proxy.get_column_family_metric("ks", "tbl", "SpeculativeRetries"), 0)
-            self.assertEqual(storage_proxy.blocking_read_repair, 0)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)
-            self.assertEqual(storage_proxy.speculated_data_repair, 0)
+            assert storage_proxy.get_table_metric("ks", "tbl", "SpeculativeRetries") == 0
+            assert storage_proxy.blocking_read_repair == 0
+            assert storage_proxy.speculated_data_request == 0
+            assert storage_proxy.speculated_data_repair == 0
 
-            session = self.patient_exclusive_cql_connection(node1)
+            session = self.get_cql_connection(node1)
             expected = [kcv(1, 0, 1), kcv(1, 1, 2)]
             # import pdb; pdb.set_trace()
             results = session.execute(quorum("SELECT * FROM ks.tbl WHERE k=1"))
-            self.assertEqual(listify(results), expected)
+            assert listify(results) == expected
 
-            self.assertEqual(storage_proxy.get_column_family_metric("ks", "tbl", "SpeculativeRetries"), 1)
-            self.assertEqual(storage_proxy.blocking_read_repair, 1)
-            self.assertEqual(storage_proxy.speculated_data_request, 0)  # we'll ask everyone we sent the initial read to
-            self.assertEqual(storage_proxy.speculated_data_repair, 1)
-
-    def test_timeouts(self):
-        node1, node2, node3 = self.cluster.nodelist()
-        assert isinstance(node1, Node)
-        assert isinstance(node2, Node)
-        assert isinstance(node3, Node)
-        session = self.patient_exclusive_cql_connection(node1, timeout=2)
-        for i in range(1000):
-            session.execute(quorum("INSERT INTO ks.tbl (k, c, v) VALUES (%s, %s, %s)" % (i, i, i)))
-
-        for n in range(100):
-            # print n
-            # if i == 1:
-            #     import pdb; pdb.set_trace()
-            for i in range(1000):
-                session.execute(quorum("SELECT * FROM ks.tbl WHERE k=%s" % i))
-                # import pdb; pdb.set_trace()
+            assert storage_proxy.get_table_metric("ks", "tbl", "SpeculativeRetries") == 1
+            assert storage_proxy.blocking_read_repair == 1
+            assert storage_proxy.speculated_data_request == 0  # we'll ask everyone we sent the initial read to
+            assert storage_proxy.speculated_data_repair == 1
 
 
 class NotRepairedException(Exception):
