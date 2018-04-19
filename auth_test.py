@@ -2701,34 +2701,36 @@ class TestAuthRoles(Tester):
         assert list(session.execute(query)) == []
 
 
-class NetworkAuthTest(Tester):
+@since('4.0')
+class TestNetworkAuth(Tester):
 
     @pytest.fixture(autouse=True)
-    def fixture_setup_auth(self, test):
-        test.cluster.set_configuration_options(values={
+    def fixture_setup_auth(self, fixture_dtest_setup):
+        fixture_dtest_setup.cluster.set_configuration_options(values={
             'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
             'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
             'role_manager': 'org.apache.cassandra.auth.CassandraRoleManager',
             'network_authorizer': 'org.apache.cassandra.auth.CassandraNetworkAuthorizer',
             'num_tokens': 1
         })
-        test.cluster.populate([1, 1], debug=True).start(wait_for_binary_proto=True, jvm_args=['-XX:-PerfDisableSharedMem'])
-        test.dc1_node, test.dc2_node = test.cluster.nodelist()
-        test.superuser = test.patient_exclusive_cql_connection(test.dc1_node, user='cassandra', password='cassandra')
+        fixture_dtest_setup.cluster.populate([1, 1], debug=True).start(wait_for_binary_proto=True, jvm_args=['-XX:-PerfDisableSharedMem'])
+        fixture_dtest_setup.dc1_node, fixture_dtest_setup.dc2_node = fixture_dtest_setup.cluster.nodelist()
+        fixture_dtest_setup.superuser = fixture_dtest_setup.patient_exclusive_cql_connection(fixture_dtest_setup.dc1_node, user='cassandra', password='cassandra')
 
-        test.superuser.execute("ALTER KEYSPACE system_auth WITH REPLICATION={'class': 'NetworkTopologyStrategy', 'dc1': 1, 'dc2': 1}")
-        test.superuser.execute("CREATE KEYSPACE ks WITH REPLICATION={'class': 'NetworkTopologyStrategy', 'dc1': 1, 'dc2': 1}")
-        test.superuser.execute("CREATE TABLE ks.tbl (k int primary key, v int)")
+        fixture_dtest_setup.superuser.execute("ALTER KEYSPACE system_auth WITH REPLICATION={'class': 'NetworkTopologyStrategy', 'dc1': 1, 'dc2': 1}")
+        fixture_dtest_setup.superuser.execute("CREATE KEYSPACE ks WITH REPLICATION={'class': 'NetworkTopologyStrategy', 'dc1': 1, 'dc2': 1}")
+        fixture_dtest_setup.superuser.execute("CREATE TABLE ks.tbl (k int primary key, v int)")
 
     def username(self):
         return ''.join(random.choice(string.ascii_lowercase) for _ in range(8));
+
 
     def create_user(self, query_fmt, username):
         """
         formats and runs the given auth query and grants permissions to the created user
         """
-        self.superuser.execute(query_fmt.format(username))
-        self.superuser.execute("GRANT ALL PERMISSIONS ON ks.tbl TO {}".format(username))
+        self.superuser.execute(query_fmt % username)
+        self.superuser.execute("GRANT ALL PERMISSIONS ON ks.tbl TO %s" % username)
 
     def assertConnectsTo(self, username, node):
         session = self.exclusive_cql_connection(node, user=username, password='password')
@@ -2741,7 +2743,7 @@ class NetworkAuthTest(Tester):
         except Unauthorized as _:
             pass
         except NoHostAvailable as e:
-            cause = e.errors.values()[0]
+            cause = list(e.errors.values())[0]
             assert isinstance(cause, Unauthorized)
 
     def assertWontConnectTo(self, username, node):
@@ -2754,13 +2756,13 @@ class NetworkAuthTest(Tester):
 
     def test_full_dc_access(self):
         username = self.username()
-        self.create_user("CREATE ROLE {} WITH password = 'password' AND LOGIN = true", username)
+        self.create_user("CREATE ROLE %s WITH password = 'password' AND LOGIN = true", username)
         self.assertConnectsTo(username, self.dc1_node)
         self.assertConnectsTo(username, self.dc2_node)
 
     def test_single_dc_access(self):
         username = self.username()
-        self.create_user("CREATE ROLE {} WITH password = 'password' AND LOGIN = true AND DATACENTERS 'dc1'", username)
+        self.create_user("CREATE ROLE %s WITH password = 'password' AND LOGIN = true AND ACCESS TO DATACENTERS {'dc1'}", username)
         self.assertConnectsTo(username, self.dc1_node)
         self.assertWontConnectTo(username, self.dc2_node)
 
@@ -2770,13 +2772,13 @@ class NetworkAuthTest(Tester):
         all of their requests should fail once the cache is cleared
         """
         username = self.username()
-        self.create_user("CREATE ROLE {} WITH password = 'password' AND LOGIN = true", username)
+        self.create_user("CREATE ROLE %s WITH password = 'password' AND LOGIN = true", username)
         self.assertConnectsTo(username, self.dc1_node)
         self.assertConnectsTo(username, self.dc2_node)
 
         # connect to the dc2 node, then remove permission for it
         session = self.exclusive_cql_connection(self.dc2_node, user=username, password='password')
-        self.superuser.execute("ALTER ROLE {} WITH DATACENTERS 'dc1'".format(username))
+        self.superuser.execute("ALTER ROLE %s WITH ACCESS TO DATACENTERS {'dc1'}" % username)
         self.clear_network_auth_cache(self.dc2_node)
         self.assertUnauthorized(lambda: session.execute("SELECT * FROM ks.tbl"))
 
@@ -2786,16 +2788,34 @@ class NetworkAuthTest(Tester):
         """
         username = self.username()
         with pytest.raises(InvalidRequest):
-            self.create_user("CREATE ROLE {} WITH password = 'password' AND LOGIN = true AND DATACENTERS 'dc1000'", username)
+            self.create_user("CREATE ROLE %s WITH password = 'password' AND LOGIN = true AND ACCESS TO DATACENTERS {'dc1000'}", username)
 
     def test_alter_dc_validation(self):
         """
         trying to give a user access to a dc that doesn't exist should fail
         """
         username = self.username()
-        self.create_user("CREATE ROLE {} WITH password = 'password' AND LOGIN = true", username)
+        self.create_user("CREATE ROLE %s WITH password = 'password' AND LOGIN = true", username)
         with pytest.raises(InvalidRequest):
-            self.create_user("ALTER ROLE {} WITH DATACENTERS 'dc1000'", username)
+            self.create_user("ALTER ROLE %s WITH ACCESS TO DATACENTERS {'dc1000'}", username)
+
+    def test_revoked_login(self):
+        """
+        If the login flag is set to false for a user with a current connection,
+        all their requests should fail once the cache is cleared. Here because it has
+        more in common with these tests that the other auth tests
+        """
+        username = self.username()
+        superuser = self.patient_exclusive_cql_connection(self.dc1_node, user='cassandra', password='cassandra')
+        self.create_user("CREATE ROLE %s WITH password = 'password' AND LOGIN = true", username)
+        self.assertConnectsTo(username, self.dc1_node)
+        self.assertConnectsTo(username, self.dc2_node)
+
+        # connect to the dc2 node, then remove permission for it
+        session = self.exclusive_cql_connection(self.dc2_node, user=username, password='password')
+        superuser.execute("ALTER ROLE %s WITH LOGIN=false" % username)
+        self.clear_network_auth_cache(self.dc2_node)
+        self.assertUnauthorized(lambda: session.execute("SELECT * FROM ks.tbl"))
 
 
 def role_creator_permissions(creator, role):
