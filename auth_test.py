@@ -1075,6 +1075,7 @@ class TestAuth(Tester):
         """
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
                   'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                  'network_authorizer': 'org.apache.cassandra.auth.CassandraNetworkAuthorizer',
                   'permissions_validity_in_ms': permissions_validity}
         self.cluster.set_configuration_options(values=config)
         self.cluster.populate(nodes).start()
@@ -2688,6 +2689,7 @@ class TestAuthRoles(Tester):
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
                   'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
                   'role_manager': 'org.apache.cassandra.auth.CassandraRoleManager',
+                  'network_authorizer': 'org.apache.cassandra.auth.CassandraNetworkAuthorizer',
                   'permissions_validity_in_ms': 0,
                   'roles_validity_in_ms': roles_expiry}
         self.cluster.set_configuration_options(values=config)
