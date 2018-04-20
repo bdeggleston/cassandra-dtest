@@ -1131,12 +1131,15 @@ def data_resource_creator_permissions(creator, resource):
 # Third value is login status
 # Fourth value is role options
 # See CASSANDRA-7653 for explanations of these
-Role = namedtuple('Role', ['name', 'superuser', 'login', 'options'])
+dcs_field = [] if CASSANDRA_VERSION_FROM_BUILD < '4.0' else ['dcs']
+Role = namedtuple('Role', ['name', 'superuser', 'login', 'options'] + dcs_field)
 
-mike_role = Role('mike', False, True, {})
-role1_role = Role('role1', False, False, {})
-role2_role = Role('role2', False, False, {})
-cassandra_role = Role('cassandra', True, True, {})
+all_dcs = [] if CASSANDRA_VERSION_FROM_BUILD < '4.0' else ['ALL']
+na_dcs = [] if CASSANDRA_VERSION_FROM_BUILD < '4.0' else ['n/a']
+mike_role = Role('mike', False, True, {}, *all_dcs)
+role1_role = Role('role1', False, False, {}, *na_dcs)
+role2_role = Role('role2', False, False, {}, *na_dcs)
+cassandra_role = Role('cassandra', True, True, {}, *all_dcs)
 
 
 @since('2.2')
@@ -1277,9 +1280,9 @@ class TestAuthRoles(Tester):
 
         # roles with roleadmin can drop roles
         mike.execute("DROP ROLE role1")
-        assert_all(cassandra, "LIST ROLES", [['administrator', False, False, {}],
+        assert_all(cassandra, "LIST ROLES", [['administrator', False, False, {}] + na_dcs,
                                              list(cassandra_role),
-                                             ['klaus', False, True, {}],
+                                             ['klaus', False, True, {}] + all_dcs,
                                              list(mike_role)])
 
         # revoking role admin removes its privileges
@@ -1355,9 +1358,9 @@ class TestAuthRoles(Tester):
         mike.execute("GRANT another_superuser TO role1")
         assert_unauthorized(mike, "CREATE ROLE role2 WITH SUPERUSER = true",
                             "Only superusers can create a role with superuser status")
-        assert_all(cassandra, "LIST ROLES OF role1", [['another_superuser', True, False, {}],
-                                                      ['non_superuser', False, False, {}],
-                                                      ['role1', False, False, {}]])
+        assert_all(cassandra, "LIST ROLES OF role1", [['another_superuser', True, False, {}] + na_dcs,
+                                                      ['non_superuser', False, False, {}] + na_dcs,
+                                                      ['role1', False, False, {}] + na_dcs])
 
     def test_drop_and_revoke_roles_with_superuser_status(self):
         """
@@ -1930,7 +1933,7 @@ class TestAuthRoles(Tester):
         assert_one(cassandra, "LIST ROLES OF mike", list(mike_role))
 
         cassandra.execute("CREATE USER super_user WITH PASSWORD '12345' SUPERUSER")
-        assert_one(cassandra, "LIST ROLES OF super_user", ["super_user", True, True, {}])
+        assert_one(cassandra, "LIST ROLES OF super_user", ["super_user", True, True, {}] + all_dcs)
 
     def test_role_name(self):
         """
@@ -1987,11 +1990,11 @@ class TestAuthRoles(Tester):
         self.get_session(user='mike', password='12345')
 
         cassandra.execute("ALTER ROLE mike WITH LOGIN = false")
-        assert_one(cassandra, "LIST ROLES OF mike", ["mike", False, False, {}])
+        assert_one(cassandra, "LIST ROLES OF mike", ["mike", False, False, {}] + na_dcs)
         self.assert_login_not_allowed('mike', '12345')
 
         cassandra.execute("ALTER ROLE mike WITH LOGIN = true")
-        assert_one(cassandra, "LIST ROLES OF mike", ["mike", False, True, {}])
+        assert_one(cassandra, "LIST ROLES OF mike", ["mike", False, True, {}] + all_dcs)
         self.get_session(user='mike', password='12345')
 
     def test_roles_do_not_inherit_login_privilege(self):
@@ -2008,9 +2011,9 @@ class TestAuthRoles(Tester):
         cassandra.execute("CREATE ROLE with_login WITH PASSWORD = '54321' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("GRANT with_login to mike")
 
-        assert_all(cassandra, "LIST ROLES OF mike", [["mike", False, False, {}],
-                                                     ["with_login", False, True, {}]])
-        assert_one(cassandra, "LIST ROLES OF with_login", ["with_login", False, True, {}])
+        assert_all(cassandra, "LIST ROLES OF mike", [["mike", False, False, {}] + na_dcs,
+                                                     ["with_login", False, True, {}] + all_dcs])
+        assert_one(cassandra, "LIST ROLES OF with_login", ["with_login", False, True, {}] + all_dcs)
 
         self.assert_login_not_allowed("mike", "12345")
 
@@ -2055,9 +2058,9 @@ class TestAuthRoles(Tester):
 
         cassandra.execute("GRANT db_admin TO mike")
         mike.execute("CREATE ROLE another_role WITH SUPERUSER = false AND LOGIN = false")
-        assert_all(mike, "LIST ROLES", [["another_role", False, False, {}],
+        assert_all(mike, "LIST ROLES", [["another_role", False, False, {}] + na_dcs,
                                         list(cassandra_role),
-                                        ["db_admin", True, False, {}],
+                                        ["db_admin", True, False, {}] + na_dcs,
                                         list(mike_role)])
 
     def test_list_users_considers_inherited_superuser_status(self):
@@ -2073,8 +2076,8 @@ class TestAuthRoles(Tester):
         cassandra.execute("CREATE ROLE db_admin WITH SUPERUSER = true")
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("GRANT db_admin TO mike")
-        assert_all(cassandra, "LIST USERS", [['cassandra', True],
-                                             ["mike", True]])
+        assert_all(cassandra, "LIST USERS", [['cassandra', True] + all_dcs,
+                                             ["mike", True] + all_dcs])
 
     # UDF permissions tests # TODO move to separate fixture & refactor this + auth_test.py
     def test_grant_revoke_udf_permissions(self):
