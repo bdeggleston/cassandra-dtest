@@ -397,20 +397,20 @@ class TestAuth(Tester):
         self.prepare()
         session = self.get_session(user='cassandra', password='cassandra')
 
-        assert_one(session, "LIST USERS", ['cassandra', True])
+        assert_one(session, "LIST USERS", ['cassandra', True] + all_dcs)
 
         session.execute("CREATE USER IF NOT EXISTS aleksey WITH PASSWORD 'sup'")
         session.execute("CREATE USER IF NOT EXISTS aleksey WITH PASSWORD 'ignored'")
 
         self.get_session(user='aleksey', password='sup')
 
-        assert_all(session, "LIST USERS", [['aleksey', False], ['cassandra', True]])
+        assert_all(session, "LIST USERS", [['aleksey', False] + all_dcs, ['cassandra', True] + all_dcs])
 
         session.execute("DROP USER IF EXISTS aleksey")
-        assert_one(session, "LIST USERS", ['cassandra', True])
+        assert_one(session, "LIST USERS", ['cassandra', True] + all_dcs)
 
         session.execute("DROP USER IF EXISTS aleksey")
-        assert_one(session, "LIST USERS", ['cassandra', True])
+        assert_one(session, "LIST USERS", ['cassandra', True] + all_dcs)
 
     def test_create_ks_auth(self):
         """
@@ -1010,13 +1010,15 @@ class TestAuth(Tester):
 
         self.cluster.stop()
         config = {'authenticator': 'org.apache.cassandra.auth.AllowAllAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.AllowAllAuthorizer'}
+                  'authorizer': 'org.apache.cassandra.auth.AllowAllAuthorizer',
+                  'network_authorizer': 'org.apache.cassandra.auth.AllowAllNetworkAuthorizer'}
         self.cluster.set_configuration_options(values=config)
         self.cluster.start(wait_for_binary_proto=True)
 
         self.cluster.stop()
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer'}
+                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                  'network_authorizer': 'org.apache.cassandra.auth.CassandraNetworkAuthorizer'}
         self.cluster.set_configuration_options(values=config)
         self.cluster.start(wait_for_binary_proto=True)
 
