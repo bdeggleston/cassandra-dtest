@@ -475,42 +475,6 @@ class TestTransientReplication(TransientReplicationBase):
                                                   repair_coordinator=self.node1,
                                                   expect_node3_data=False)
 
-    def test_full_repair_from_full_replica(self):
-        """ full repairs shouldn't replicate data to transient replicas """
-        session = self.exclusive_cql_connection(self.node1)
-        for node in self.nodes:
-            self.assert_has_no_sstables(node)
-
-        self.insert_row(1, 1, 1, session=session)
-
-        self.assert_has_sstables(self.node1, flush=True)
-        self.assert_has_sstables(self.node2, flush=True)
-        self.assert_has_no_sstables(self.node3, flush=True)
-
-        self.node1.nodetool(' '.join(['repair', self.keyspace, '-full']))
-
-        self.assert_has_sstables(self.node1, flush=True)
-        self.assert_has_sstables(self.node2, flush=True)
-        self.assert_has_no_sstables(self.node3, flush=True)
-
-    def test_full_repair_from_transient_replica(self):
-        """ full repairs shouldn't replicate data to transient replicas """
-        session = self.exclusive_cql_connection(self.node1)
-        for node in self.nodes:
-            self.assert_has_no_sstables(node)
-
-        self.insert_row(1, 1, 1, session=session)
-
-        self.assert_has_sstables(self.node1, flush=True)
-        self.assert_has_sstables(self.node2, flush=True)
-        self.assert_has_no_sstables(self.node3, flush=True)
-
-        self.node3.nodetool(' '.join(['repair', self.keyspace, '-full']))
-
-        self.assert_has_sstables(self.node1, flush=True)
-        self.assert_has_sstables(self.node2, flush=True)
-        self.assert_has_no_sstables(self.node3, flush=True)
-
     def test_primary_range_repair(self):
         """ optimized primary range incremental repair from full replica should remove data on node3 """
         self._test_speculative_write_repair_cycle(primary_range=True,
@@ -673,6 +637,43 @@ class TestTransientReplication(TransientReplicationBase):
         self.assert_local_rows(self.node1, [[1,1,1]])
         self.assert_local_rows(self.node2, [])
         self.assert_local_rows(self.node3, [[1,1,1]])
+
+    def test_full_repair_from_full_replica(self):
+        """ full repairs shouldn't replicate data to transient replicas """
+        session = self.exclusive_cql_connection(self.node1)
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
+
+        self.insert_row(1, 1, 1, session=session)
+
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
+
+        self.node1.nodetool(' '.join(['repair', self.keyspace, '-full']))
+
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
+
+    def test_full_repair_from_transient_replica(self):
+        """ full repairs shouldn't replicate data to transient replicas """
+        session = self.exclusive_cql_connection(self.node1)
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
+
+        self.insert_row(1, 1, 1, session=session)
+
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
+
+        self.node3.nodetool(' '.join(['repair', self.keyspace, '-full']))
+
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
+
 
 class TestTransientReplicationForwarding(TransientReplicationBase):
 
