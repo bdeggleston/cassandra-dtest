@@ -186,6 +186,7 @@ class TestTransientReplication(Tester):
         self.check_expected(sessions, expected)
 
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
+        patch_start(node4)
         nodes.append(node4)
         node4.start(wait_for_binary_proto=True, wait_other_notice=True)
 
@@ -225,6 +226,7 @@ class TestTransientReplication(Tester):
     def move_test(self, move_token, expected_after_move, expected_after_repair):
         """Helper method to run a move test cycle"""
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
+        patch_start(node4)
         node4.start(wait_for_binary_proto=True, wait_other_notice=True)
         main_session = self.patient_cql_connection(self.node1)
         self.table = 'tbl2'
@@ -332,6 +334,7 @@ class TestTransientReplication(Tester):
     def test_decommission(self):
         """Test decommissioning a node correctly streams out all the data"""
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
+        patch_start(node4)
         node4.start(wait_for_binary_proto=True, wait_other_notice=True)
         main_session = self.patient_cql_connection(self.node1)
         self.table = 'tbl2'
@@ -393,6 +396,7 @@ class TestTransientReplication(Tester):
     def test_remove(self):
         """Test  a mix of ring change operations across a mix of transient and repaired/unrepaired data"""
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
+        patch_start(node4)
         node4.start(wait_for_binary_proto=True, wait_other_notice=True)
         main_session = self.patient_cql_connection(self.node1)
         self.table = 'tbl2'
