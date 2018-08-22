@@ -447,7 +447,7 @@ class TestTransientReplication(TransientReplicationBase):
             assert tm1.write_count == 0
             assert tm2.write_count == 0
             assert tm3.write_count == 0
-            self.insert_row(1)
+            self.insert_row(1, 1, 1)
             assert tm1.write_count == 1
             assert tm2.write_count == 0
             assert tm3.write_count == 1
@@ -481,7 +481,7 @@ class TestTransientReplication(TransientReplicationBase):
         for node in self.nodes:
             self.assert_has_no_sstables(node)
 
-        self.insert_row(1, session=session)
+        self.insert_row(1, 1, 1, session=session)
 
         self.assert_has_sstables(self.node1, flush=True)
         self.assert_has_sstables(self.node2, flush=True)
@@ -499,7 +499,7 @@ class TestTransientReplication(TransientReplicationBase):
         for node in self.nodes:
             self.assert_has_no_sstables(node)
 
-        self.insert_row(1, session=session)
+        self.insert_row(1, 1, 1, session=session)
 
         self.assert_has_sstables(self.node1, flush=True)
         self.assert_has_sstables(self.node2, flush=True)
