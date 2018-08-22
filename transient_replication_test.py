@@ -251,6 +251,12 @@ class TransientReplicationBase(Tester):
         assert token < self.tokens[0] or self.tokens[-1] < token   # primary replica should be node1
         self.quorum(session, "INSERT INTO %s.%s (pk, ck, value) VALUES (%s, %s, %s)" % (self.keyspace, self.table, pk, ck, value))
 
+    def delete_row(self, pk, ck, session=None, node=None):
+        session = session or self.exclusive_cql_connection(node or self.node1)
+        token = Murmur3Token.from_key(pack('>i', pk)).value
+        assert token < self.tokens[0] or self.tokens[-1] < token   # primary replica should be node1
+        self.quorum(session, "DELETE FROM %s.%s WHERE pk = %s AND ck = %s" % (self.keyspace, self.table, pk, ck))
+
     def read_as_list(self, query, session=None, node=None):
         session = session or self.exclusive_cql_connection(node or self.node1)
         return rows_to_list(self.quorum(session, query))
@@ -323,11 +329,10 @@ class TestTransientReplication(TransientReplicationBase):
             self.assert_has_no_sstables(node)
 
         tm = lambda n: self.table_metrics(n)
-        with tm(self.node1) as tm1, tm(self.node2) as tm2, tm(self.node3) as tm3:
-            self.insert_row(1, 1, 1)
-            # Stop writes to the other full node
-            self.node2.byteman_submit(['./byteman/stop_writes.btm'])
-            self.insert_row(1, 2, 2)
+        self.insert_row(1, 1, 1)
+        # Stop writes to the other full node
+        self.node2.byteman_submit(['./byteman/stop_writes.btm'])
+        self.insert_row(1, 2, 2)
 
         # Stop reads from the node that will hold the second row
         self.node1.stop()
@@ -339,6 +344,56 @@ class TestTransientReplication(TransientReplicationBase):
                        [[1, 1, 1],
                         [1, 2, 2]],
                        cl=ConsistencyLevel.QUORUM)
+
+    def test_srp(self):
+        """ When reading, transient replica should serve a missing read """
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
+
+        tm = lambda n: self.table_metrics(n)
+        self.insert_row(1, 1, 1)
+        self.insert_row(1, 2, 2)
+
+        # Stop writes to the other full node
+        self.node2.byteman_submit(['./byteman/stop_writes.btm'])
+        self.delete_row(1, 1, node = self.node1)
+
+        # Stop reads from the node that will hold the second row
+        self.node1.stop()
+
+        # Whether we're reading from the full node or from the transient node, we should get consistent results
+        assert_all(self.exclusive_cql_connection(self.node3),
+                   "SELECT * FROM %s.%s LIMIT 1" % (self.keyspace, self.table),
+                   [[1, 2, 2]],
+                   cl=ConsistencyLevel.QUORUM)
+
+    def test_transient_full_merge_read_with_delete_transient_coordinator(self):
+        self._test_transient_full_merge_read_with_delete(self.node3)
+
+    def test_transient_full_merge_read_with_delete_full_coordinator(self):
+        self._test_transient_full_merge_read_with_delete(self.node2)
+
+    def _test_transient_full_merge_read_with_delete(self, coordinator):
+        """ When reading, transient replica should serve a missing read """
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
+
+        tm = lambda n: self.table_metrics(n)
+        self.insert_row(1, 1, 1)
+        self.insert_row(1, 2, 2)
+        # Stop writes to the other full node
+        self.node2.byteman_submit(['./byteman/stop_writes.btm'])
+        self.delete_row(1, 2)
+
+        self.assert_local_rows(self.node3,
+                               [])
+        # Stop reads from the node that will hold the second row
+        self.node1.stop()
+
+        assert_all(self.exclusive_cql_connection(coordinator),
+                   "SELECT * FROM %s.%s" % (self.keyspace, self.table),
+                   [[1, 1, 1]],
+                   cl=ConsistencyLevel.QUORUM)
 
     def test_blocking_read_repair_from_transient_node_transient_coordinator(self):
         self._test_blocking_read_repair_from_transient_node(self.node3)
@@ -378,99 +433,104 @@ class TestTransientReplication(TransientReplicationBase):
                                [[1, 1, 1],
                                 [1, 2, 2]])
 
-    # TODO: failing because of
-    # java.lang.UnsupportedOperationException: transient replicas are currently unsupported
-    #    at org.apache.cassandra.locator.Replicas.checkFull(Replicas.java:305)
-    #    at org.apache.cassandra.repair.RepairRunnable.runMayThrow(RepairRunnable.java:240)
-    #    at org.apache.cassandra.utils.WrappedRunnable.run(WrappedRunnable.java:28)
-    #
-    # This tests repairAsync
-    # def test_speculative_write_repair_cycle(self):
-    #     """
-    #     if one of the full replicas is not available, data should be written to the transient
-    #     replica, but removed after incremental repair
-    #     """
-    #     for node in self.nodes:
-    #         self.assert_has_no_sstables(node)
+    def _test_speculative_write_repair_cycle(self, primary_range, optimized_repair, repair_coordinator, expect_node3_data):
+        """
+        if one of the full replicas is not available, data should be written to the transient replica, but removed after incremental repair
+        """
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
 
-    #     self.node2.byteman_submit(['./byteman/stop_writes.btm'])
-    #     # self.insert_row(1)
-    #     tm = lambda n: self.table_metrics(n)
-    #     with tm(self.node1) as tm1, tm(self.node2) as tm2, tm(self.node3) as tm3:
-    #         assert tm1.write_count == 0
-    #         assert tm2.write_count == 0
-    #         assert tm3.write_count == 0
-    #         self.insert_row(1, 1, 1)
-    #         assert tm1.write_count == 1
-    #         assert tm2.write_count == 0
-    #         assert tm3.write_count == 1
+        self.node2.byteman_submit(['./byteman/stop_writes.btm'])
+        # self.insert_row(1)
+        tm = lambda n: self.table_metrics(n)
+        with tm(self.node1) as tm1, tm(self.node2) as tm2, tm(self.node3) as tm3:
+            assert tm1.write_count == 0
+            assert tm2.write_count == 0
+            assert tm3.write_count == 0
+            self.insert_row(1)
+            assert tm1.write_count == 1
+            assert tm2.write_count == 0
+            assert tm3.write_count == 1
 
-    #     self.assert_has_sstables(self.node1, flush=True)
-    #     self.assert_has_no_sstables(self.node2, flush=True)
-    #     self.assert_has_sstables(self.node3, flush=True)
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_no_sstables(self.node2, flush=True)
+        self.assert_has_sstables(self.node3, flush=True)
 
-    #     self.node1.nodetool(' '.join(['repair', self.keyspace, '-pr']))
+        repair_opts = ['repair', self.keyspace]
+        if primary_range: repair_opts.append('-pr')
+        if optimized_repair: repair_opts.append('-os')
+        self.node1.nodetool(' '.join(repair_opts))
 
-    #     self.assert_has_sstables(self.node1, compact=True)
-    #     self.assert_has_sstables(self.node2, compact=True)
-    #     self.assert_has_no_sstables(self.node3, compact=True)
+        self.assert_has_sstables(self.node1, compact=True)
+        self.assert_has_sstables(self.node2, compact=True)
+        if expect_node3_data:
+            self.assert_has_sstables(self.node3, compact=True)
+        else:
+            self.assert_has_no_sstables(self.node3, compact=True)
 
-    # def test_full_repair(self):
-    #     """ full repairs shouldn't replicate data to transient replicas """
-    #     for node in self.nodes:
-    #         self.assert_has_no_sstables(node)
+    def test_speculative_write_repair_cycle(self):
+        """ incremental repair from full replica should remove data on node3 """
+        self._test_speculative_write_repair_cycle(primary_range=False,
+                                                  optimized_repair=False,
+                                                  repair_coordinator=self.node1,
+                                                  expect_node3_data=False)
 
-    #     # tm = lambda n: self.table_metrics(n)
-    #     # with tm(self.node1) as tm1, tm(self.node2) as tm2, tm(self.node3) as tm3:
-    #     self.insert_row(1, 1, 1)
-    #     self.insert_row(1, 2, 2)
-    #     self.node2.byteman_submit(['./byteman/stop_writes.btm'])
-    #     self.insert_row(1, 3, 3)
+    def test_full_repair_from_full_replica(self):
+        """ full repairs shouldn't replicate data to transient replicas """
+        session = self.exclusive_cql_connection(self.node1)
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
 
-    #     self.assert_local_rows(self.node1, [[1,1,1],
-    #                                         [1,2,2],
-    #                                         [1,3,3]])
-    #     self.assert_local_rows(self.node2, [[1,1,1],
-    #                                         [1,2,2]])
-    #     self.assert_local_rows(self.node3, [[1,3,3]])
+        self.insert_row(1, session=session)
 
-    #     self.node1.nodetool(' '.join(['repair', self.keyspace]))
-    #     self.node3.nodetool(' '.join(['cleanup', self.keyspace]))
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
 
-    #     self.assert_local_rows(self.node1, [[1,1,1],
-    #                                         [1,2,2],
-    #                                         [1,3,3]])
-    #     self.assert_local_rows(self.node2, [[1,1,1],
-    #                                         [1,2,2],
-    #                                         [1,3,3]])
-    #     self.assert_local_rows(self.node3, [])
+        self.node1.nodetool(' '.join(['repair', self.keyspace, '-full']))
 
-    # def test_full_repair_2(self):
-    #     all_rows = self.generate_rows(10, 10)
-    #     transiently_written_1, transiently_written_2 = self.split(all_rows)
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
 
-    #     # Stop writes to the other full node
-    #     self.node2.stop(wait_other_notice=True)
-    #     for row in transiently_written_1:
-    #         pk, ck, value = row
-    #         self.insert_row(pk, ck, value, node=self.node1)
-    #     self.node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+    def test_full_repair_from_transient_replica(self):
+        """ full repairs shouldn't replicate data to transient replicas """
+        session = self.exclusive_cql_connection(self.node1)
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
 
-    #     self.node1.stop(wait_other_notice=True)
-    #     for row in transiently_written_2:
-    #         pk, ck, value = row
-    #         self.insert_row(pk, ck, value, node=self.node2)
-    #     self.node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+        self.insert_row(1, session=session)
 
-    #     self.assert_local_rows(self.node1, transiently_written_1)
-    #     self.assert_local_rows(self.node2, transiently_written_2)
-    #     self.assert_local_rows(self.node3, all_rows)
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
 
-    #     self.node1.nodetool(' '.join(['repair', self.keyspace]))
+        self.node3.nodetool(' '.join(['repair', self.keyspace, '-full']))
 
-    #     self.assert_local_rows(self.node1, all_rows)
-    #     self.assert_local_rows(self.node2, all_rows)
-    #     self.assert_local_rows(self.node3, all_rows) ## SHOULD BE NO ROWS!!!
+        self.assert_has_sstables(self.node1, flush=True)
+        self.assert_has_sstables(self.node2, flush=True)
+        self.assert_has_no_sstables(self.node3, flush=True)
+
+    def test_primary_range_repair(self):
+        """ optimized primary range incremental repair from full replica should remove data on node3 """
+        self._test_speculative_write_repair_cycle(primary_range=True,
+                                                  optimized_repair=False,
+                                                  repair_coordinator=self.node1,
+                                                  expect_node3_data=False)
+
+    def test_optimized_primary_range_repair(self):
+        """ optimized primary range incremental repair from full replica should remove data on node3 """
+        self._test_speculative_write_repair_cycle(primary_range=True,
+                                                  optimized_repair=True,
+                                                  repair_coordinator=self.node1,
+                                                  expect_node3_data=False)
+
+    def test_transient_incremental_repair(self):
+        """ transiently replicated ranges should be skipped when coordinating repairs """
+        self._test_speculative_write_repair_cycle(primary_range=True,
+                                                  optimized_repair=False,
+                                                  repair_coordinator=self.node1,
+                                                  expect_node3_data=False)
 
     def test_full_to_trans_read_repair(self):
         """ Data on a full replica shouldn't be rr'd to transient replicas """
@@ -722,6 +782,53 @@ class TestTransientReplicationSpeculativeQueries(TransientReplicationBase):
         for node in self.nodes:
             assert_all(self.exclusive_cql_connection(node),
                        "SELECT * FROM %s.%s WHERE pk = 1" % (self.keyspace, self.table),
+                       [[1, 1, 1],
+                        [1, 2, 2]],
+                       cl=ConsistencyLevel.QUORUM)
+
+class TestMultipleTransientNodes(TransientReplicationBase):
+    def populate(self):
+        self.cluster.populate(5, tokens=self.tokens, debug=True, install_byteman=True)
+
+    def set_nodes(self):
+        self.node1, self.node2, self.node3, self.node4, self.node5 = self.nodes
+
+    def replication_factor(self):
+        return '5/2'
+
+    def tokens(self):
+        return [0, 1, 2, 3, 4]
+
+    def test_transient_full_merge_read(self):
+        """ When reading, transient replica should serve a missing read """
+        for node in self.nodes:
+            self.assert_has_no_sstables(node)
+
+        tm = lambda n: self.table_metrics(n)
+        self.insert_row(1, 1, 1)
+        # Stop writes to the other full node
+        self.node2.byteman_submit(['./byteman/stop_writes.btm'])
+        self.insert_row(1, 2, 2)
+
+        self.assert_local_rows(self.node1,
+                               [[1, 1, 1],
+                                [1, 2, 2]])
+        self.assert_local_rows(self.node2,
+                               [[1, 1, 1]])
+        self.assert_local_rows(self.node3,
+                               [[1, 1, 1],
+                                [1, 2, 2]])
+        self.assert_local_rows(self.node4,
+                               [[1, 2, 2]])
+        self.assert_local_rows(self.node5,
+                               [[1, 2, 2]])
+        # Stop reads from the node that will hold the second row
+        self.node1.stop()
+
+        # Whether we're reading from the full node or from the transient node, we should get consistent results
+        for node in [self.node2, self.node3, self.node4, self.node5]:
+            assert_all(self.exclusive_cql_connection(node),
+                       "SELECT * FROM %s.%s" % (self.keyspace, self.table),
                        [[1, 1, 1],
                         [1, 2, 2]],
                        cl=ConsistencyLevel.QUORUM)
