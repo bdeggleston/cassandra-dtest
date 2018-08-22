@@ -41,7 +41,7 @@ def patch_start(startable):
 
     def new_start(self, *args, **kwargs):
         kwargs['jvm_args'] = kwargs.get('jvm_args', []) + ['-XX:-PerfDisableSharedMem'
-                                                           '-Dcassandra.enable_nodelocal_queries=true']
+                                                           ' -Dcassandra.enable_nodelocal_queries=true']
         return old_start(*args, **kwargs)
 
     startable.start = types.MethodType(new_start, startable)
@@ -157,8 +157,15 @@ class TestTransientReplication(Tester):
 
         sessions = [self.exclusive_cql_connection(node) for node in [self.node1, self.node2, self.node3]]
 
-        #Make sure at least a little data is repaired
+        expected = [gen_expected(range(0, 11, 2), range(22, 40, 2)),
+                    gen_expected(range(0, 22, 2), range(32, 40, 2)),
+                    gen_expected(range(12, 31, 2))]
+        self.check_expected(sessions, expected)
+
+        #Make sure at least a little data is repaired, this shouldn't move data anywhere
         repair_nodes(nodes)
+
+        self.check_expected(sessions, expected)
 
         #Ensure that there is at least some transient data around, because of this if it's missing after bootstrap
         #We know we failed to get it from the transient replica losing the range entirely
