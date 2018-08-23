@@ -277,8 +277,10 @@ class TransientReplicationBase(Tester):
     def generate_rows(self, partitions, rows):
         return [[pk, ck, pk+ck] for ck in range(rows) for pk in range(partitions)]
 
+
 class TestTransientReplication(TransientReplicationBase):
 
+    @pytest.mark.no_vnodes
     def test_transient_noop_write(self):
         """ If both full replicas are available, nothing should be written to the transient replica """
         for node in self.nodes:
@@ -298,6 +300,7 @@ class TestTransientReplication(TransientReplicationBase):
         self.assert_has_sstables(self.node2, flush=True)
         self.assert_has_no_sstables(self.node3, flush=True)
 
+    @pytest.mark.no_vnodes
     def test_transient_write(self):
         """ If write can't succeed on full replica, it's written to the transient node instead """
         for node in self.nodes:
@@ -323,6 +326,7 @@ class TestTransientReplication(TransientReplicationBase):
         self.assert_local_rows(self.node3,
                                [[1, 2, 2]])
 
+    @pytest.mark.no_vnodes
     def test_transient_full_merge_read(self):
         """ When reading, transient replica should serve a missing read """
         for node in self.nodes:
@@ -345,6 +349,7 @@ class TestTransientReplication(TransientReplicationBase):
                         [1, 2, 2]],
                        cl=ConsistencyLevel.QUORUM)
 
+    @pytest.mark.no_vnodes
     def test_srp(self):
         """ When reading, transient replica should serve a missing read """
         for node in self.nodes:
@@ -367,12 +372,15 @@ class TestTransientReplication(TransientReplicationBase):
                    [[1, 2, 2]],
                    cl=ConsistencyLevel.QUORUM)
 
+    @pytest.mark.no_vnodes
     def test_transient_full_merge_read_with_delete_transient_coordinator(self):
         self._test_transient_full_merge_read_with_delete(self.node3)
 
+    @pytest.mark.no_vnodes
     def test_transient_full_merge_read_with_delete_full_coordinator(self):
         self._test_transient_full_merge_read_with_delete(self.node2)
 
+    @pytest.mark.no_vnodes
     def _test_transient_full_merge_read_with_delete(self, coordinator):
         """ When reading, transient replica should serve a missing read """
         for node in self.nodes:
@@ -395,12 +403,15 @@ class TestTransientReplication(TransientReplicationBase):
                    [[1, 1, 1]],
                    cl=ConsistencyLevel.QUORUM)
 
+    @pytest.mark.no_vnodes
     def test_blocking_read_repair_from_transient_node_transient_coordinator(self):
         self._test_blocking_read_repair_from_transient_node(self.node3)
 
+    @pytest.mark.no_vnodes
     def test_blocking_read_repair_from_transient_node_full_coordinator(self):
         self._test_blocking_read_repair_from_transient_node(self.node2)
 
+    @pytest.mark.no_vnodes
     def _test_blocking_read_repair_from_transient_node(self, read_node):
         """ When reading from transient replica, it should trigger blocking partition
         repair and send mutations to the full node  """
@@ -468,6 +479,7 @@ class TestTransientReplication(TransientReplicationBase):
         else:
             self.assert_has_no_sstables(self.node3, compact=True)
 
+    @pytest.mark.no_vnodes
     def test_speculative_write_repair_cycle(self):
         """ incremental repair from full replica should remove data on node3 """
         self._test_speculative_write_repair_cycle(primary_range=False,
@@ -475,6 +487,7 @@ class TestTransientReplication(TransientReplicationBase):
                                                   repair_coordinator=self.node1,
                                                   expect_node3_data=False)
 
+    @pytest.mark.no_vnodes
     def test_primary_range_repair(self):
         """ optimized primary range incremental repair from full replica should remove data on node3 """
         self._test_speculative_write_repair_cycle(primary_range=True,
@@ -482,6 +495,7 @@ class TestTransientReplication(TransientReplicationBase):
                                                   repair_coordinator=self.node1,
                                                   expect_node3_data=False)
 
+    @pytest.mark.no_vnodes
     def test_optimized_primary_range_repair(self):
         """ optimized primary range incremental repair from full replica should remove data on node3 """
         self._test_speculative_write_repair_cycle(primary_range=True,
@@ -489,6 +503,7 @@ class TestTransientReplication(TransientReplicationBase):
                                                   repair_coordinator=self.node1,
                                                   expect_node3_data=False)
 
+    @pytest.mark.no_vnodes
     def test_transient_incremental_repair(self):
         """ transiently replicated ranges should be skipped when coordinating repairs """
         self._test_speculative_write_repair_cycle(primary_range=True,
@@ -496,6 +511,7 @@ class TestTransientReplication(TransientReplicationBase):
                                                   repair_coordinator=self.node1,
                                                   expect_node3_data=False)
 
+    @pytest.mark.no_vnodes
     def test_full_to_trans_read_repair(self):
         """ Data on a full replica shouldn't be rr'd to transient replicas """
         session = self.exclusive_cql_connection(self.node1)
@@ -523,6 +539,7 @@ class TestTransientReplication(TransientReplicationBase):
         with StorageProxy(self.node1) as sp:
             assert sp.blocking_read_repair == 0
 
+    @pytest.mark.no_vnodes
     def test_trans_to_full_read_repair(self):
         """ data on transient replicas should be rr'd to full replicas """
         session = self.exclusive_cql_connection(self.node1)
@@ -561,6 +578,7 @@ class TestTransientReplication(TransientReplicationBase):
         with StorageProxy(self.node2) as sp:
             assert sp.blocking_read_repair == 1
 
+    @pytest.mark.no_vnodes
     def test_trans_to_full_read_repair_multi_row_full_coordinator(self):
         """
         Data on transient replicas should be rr'd to full replicas,
@@ -568,6 +586,7 @@ class TestTransientReplication(TransientReplicationBase):
         """
         self.__test_trans_to_full_read_repair_multi_row(self.node1)
 
+    @pytest.mark.no_vnodes
     def test_trans_to_full_read_repair_multi_row_trans_coordinator(self):
         """
         Data on transient replicas should be rr'd to full replicas,
@@ -611,6 +630,7 @@ class TestTransientReplication(TransientReplicationBase):
                                                 [1,2,2]])
             self.assert_local_rows(self.node3, [[1,2,2]])
 
+    @pytest.mark.no_vnodes
     def test_cheap_quorums(self):
         """ writes shouldn't make it to transient nodes """
         session = self.exclusive_cql_connection(self.node1)
@@ -628,6 +648,7 @@ class TestTransientReplication(TransientReplicationBase):
             assert tm2.write_count == 1
             assert tm3.write_count == 0
 
+    @pytest.mark.no_vnodes
     def test_speculative_write(self):
         """ if a full replica isn't responding, we should send the write to the transient replica """
         session = self.exclusive_cql_connection(self.node1)
@@ -638,6 +659,7 @@ class TestTransientReplication(TransientReplicationBase):
         self.assert_local_rows(self.node2, [])
         self.assert_local_rows(self.node3, [[1,1,1]])
 
+    @pytest.mark.no_vnodes
     def test_full_repair_from_full_replica(self):
         """ full repairs shouldn't replicate data to transient replicas """
         session = self.exclusive_cql_connection(self.node1)
@@ -656,6 +678,7 @@ class TestTransientReplication(TransientReplicationBase):
         self.assert_has_sstables(self.node2, flush=True)
         self.assert_has_no_sstables(self.node3, flush=True)
 
+    @pytest.mark.no_vnodes
     def test_full_repair_from_transient_replica(self):
         """ full repairs shouldn't replicate data to transient replicas """
         session = self.exclusive_cql_connection(self.node1)
@@ -689,8 +712,11 @@ class TestTransientReplicationForwarding(TransientReplicationBase):
     def tokens(self):
         return [0, 1, 2, 3, 4]
 
+    @pytest.mark.no_vnodes
     def test_forwarding_repair_from_transient_node_from_full(self):
         self.__test_forwarding_repair_from_transient_node(self.node1)
+
+    @pytest.mark.no_vnodes
     def test_forwarding_repair_from_transient_node_from_transient(self):
         self.__test_forwarding_repair_from_transient_node(self.node5)
 
@@ -724,6 +750,7 @@ class TestTransientReplicationForwarding(TransientReplicationBase):
         for node in [self.node1, self.node2, self.node5]:
             self.assert_local_rows(node, [[1, 1, 1]])
 
+    @pytest.mark.no_vnodes
     def test_additional_repairs(self):
         """ When the full nodes return same digest, but transient node
         returns data, it should forwarded to both full nodes """
@@ -755,6 +782,7 @@ class TestTransientReplicationSpeculativeQueries(TransientReplicationBase):
         session.execute("CREATE KEYSPACE %s WITH REPLICATION={%s}" % (self.keyspace, replication_params))
         session.execute("CREATE TABLE %s.%s (pk int, ck int, value int, PRIMARY KEY (pk, ck)) WITH speculative_retry = 'NEVER';" % (self.keyspace, self.table))
 
+    @pytest.mark.no_vnodes
     def test_always_speculate(self):
         """ If write can't succeed on full replica, it's written to the transient node instead """
         session = self.exclusive_cql_connection(self.node1)
@@ -771,6 +799,7 @@ class TestTransientReplicationSpeculativeQueries(TransientReplicationBase):
                         [1, 2, 2]],
                        cl=ConsistencyLevel.QUORUM)
 
+    @pytest.mark.no_vnodes
     def test_custom_speculate(self):
         """ If write can't succeed on full replica, it's written to the transient node instead """
         session = self.exclusive_cql_connection(self.node1)
@@ -800,6 +829,7 @@ class TestMultipleTransientNodes(TransientReplicationBase):
     def tokens(self):
         return [0, 1, 2, 3, 4]
 
+    @pytest.mark.no_vnodes
     def test_transient_full_merge_read(self):
         """ When reading, transient replica should serve a missing read """
         for node in self.nodes:
@@ -836,9 +866,11 @@ class TestMultipleTransientNodes(TransientReplicationBase):
 
 class TestTransientRangeReads(TransientReplicationBase):
 
+    @pytest.mark.no_vnodes
     def test_blocking_read_repair_full_coordinator(self):
         self.__test_blocking_read_repair(self.node1)
 
+    @pytest.mark.no_vnodes
     def test_blocking_read_repair_transient_coordinator(self):
         self.__test_blocking_read_repair(self.node3)
 
@@ -875,12 +907,15 @@ class TestTransientRangeReads(TransientReplicationBase):
         self.assert_local_rows(self.node2, all_rows, ignore_order=True)
         self.assert_local_rows(self.node3, all_rows, ignore_order=True)
 
+    @pytest.mark.no_vnodes
     def test_no_transient_repair_full_coordinator_with_data(self):
         self.__test_no_transient_repair(self.node1)
 
+    @pytest.mark.no_vnodes
     def test_no_transient_repair_full_coordinator_without_data(self):
         self.__test_no_transient_repair(self.node2)
 
+    @pytest.mark.no_vnodes
     def test_no_transient_repair_transient_coordinator(self):
         self.__test_no_transient_repair(self.node3)
 
