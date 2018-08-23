@@ -46,7 +46,7 @@ def patch_start(startable):
 
     startable.start = types.MethodType(new_start, startable)
 
-class TestTransientReplication(Tester):
+class TestTransientReplicationRing(Tester):
 
     keyspace = "ks"
     table = "tbl"
@@ -145,6 +145,8 @@ class TestTransientReplication(Tester):
         #not at a replica unless it is intentional
         self.quorum(session, "INSERT INTO %s.%s (pk, ck, value) VALUES ('%05d', %s, %s)" % (self.keyspace, self.table, pk, ck, value))
 
+    @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_bootstrap_and_cleanup(self):
         """Test bootstrapping a new node across a mix of repaired and unrepaired data"""
         main_session = self.patient_cql_connection(self.node1)
@@ -222,7 +224,8 @@ class TestTransientReplication(Tester):
         #Every value should be replicated exactly 2 times
         self.check_replication(sessions, exactly=2)
 
-
+    @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def move_test(self, move_token, expected_after_move, expected_after_repair):
         """Helper method to run a move test cycle"""
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
@@ -271,6 +274,7 @@ class TestTransientReplication(Tester):
 
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_move_forwards_between_and_cleanup(self):
         """Test moving a node forwards past a neighbor token"""
         move_token = '00025'
@@ -286,6 +290,7 @@ class TestTransientReplication(Tester):
 
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_move_forwards_and_cleanup(self):
         """Test moving a node forwards without going past a neighbor token"""
         move_token = '00015'
@@ -301,6 +306,7 @@ class TestTransientReplication(Tester):
 
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_move_backwards_between_and_cleanup(self):
         """Test moving a node backwards past it's preceding neighbor's token"""
         move_token = '00035'
@@ -316,6 +322,7 @@ class TestTransientReplication(Tester):
 
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_move_backwards_and_cleanup(self):
         """Test moving a node backwards without moving past a neighbor token"""
         move_token = '00005'
@@ -331,6 +338,7 @@ class TestTransientReplication(Tester):
 
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_decommission(self):
         """Test decommissioning a node correctly streams out all the data"""
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
@@ -393,6 +401,7 @@ class TestTransientReplication(Tester):
 
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_remove(self):
         """Test  a mix of ring change operations across a mix of transient and repaired/unrepaired data"""
         node4 = new_node(self.cluster, bootstrap=True, token='00040')
@@ -445,6 +454,7 @@ class TestTransientReplication(Tester):
         self.check_expected(sessions, expected)
 
     @flaky(max_runs=1)
+    @pytest.mark.no_vnodes
     def test_replace(self):
         main_session = self.patient_cql_connection(self.node1)
         self.table = 'tbl2'
