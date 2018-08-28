@@ -511,6 +511,7 @@ class TestTransientReplication(TransientReplicationBase):
                                                   repair_coordinator=self.node1,
                                                   expect_node3_data=False)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_full_to_trans_read_repair(self):
         """ Data on a full replica shouldn't be rr'd to transient replicas """
@@ -539,6 +540,7 @@ class TestTransientReplication(TransientReplicationBase):
         with StorageProxy(self.node1) as sp:
             assert sp.blocking_read_repair == 0
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_trans_to_full_read_repair(self):
         """ data on transient replicas should be rr'd to full replicas """
@@ -578,6 +580,7 @@ class TestTransientReplication(TransientReplicationBase):
         with StorageProxy(self.node2) as sp:
             assert sp.blocking_read_repair == 1
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_trans_to_full_read_repair_multi_row_full_coordinator(self):
         """
@@ -586,6 +589,7 @@ class TestTransientReplication(TransientReplicationBase):
         """
         self.__test_trans_to_full_read_repair_multi_row(self.node1)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_trans_to_full_read_repair_multi_row_trans_coordinator(self):
         """
@@ -712,10 +716,12 @@ class TestTransientReplicationForwarding(TransientReplicationBase):
     def tokens(self):
         return [0, 1, 2, 3, 4]
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_forwarding_repair_from_transient_node_from_full(self):
         self.__test_forwarding_repair_from_transient_node(self.node1)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_forwarding_repair_from_transient_node_from_transient(self):
         self.__test_forwarding_repair_from_transient_node(self.node5)
@@ -750,6 +756,7 @@ class TestTransientReplicationForwarding(TransientReplicationBase):
         for node in [self.node1, self.node2, self.node5]:
             self.assert_local_rows(node, [[1, 1, 1]])
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_additional_repairs(self):
         """ When the full nodes return same digest, but transient node
@@ -866,10 +873,12 @@ class TestMultipleTransientNodes(TransientReplicationBase):
 
 class TestTransientRangeReads(TransientReplicationBase):
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_blocking_read_repair_full_coordinator(self):
         self.__test_blocking_read_repair(self.node1)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_blocking_read_repair_transient_coordinator(self):
         self.__test_blocking_read_repair(self.node3)
@@ -907,14 +916,17 @@ class TestTransientRangeReads(TransientReplicationBase):
         self.assert_local_rows(self.node2, all_rows, ignore_order=True)
         self.assert_local_rows(self.node3, all_rows, ignore_order=True)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_no_transient_repair_full_coordinator_with_data(self):
         self.__test_no_transient_repair(self.node1)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_no_transient_repair_full_coordinator_without_data(self):
         self.__test_no_transient_repair(self.node2)
 
+    @pytest.mark.skip(reason="Waiting until monotonic reads https://issues.apache.org/jira/browse/CASSANDRA-14665")
     @pytest.mark.no_vnodes
     def test_no_transient_repair_transient_coordinator(self):
         self.__test_no_transient_repair(self.node3)
