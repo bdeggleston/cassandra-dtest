@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from collections import Counter, namedtuple
 from re import findall, compile
+from threading import Thread
 from uuid import UUID, uuid1
 
 from cassandra import ConsistencyLevel
@@ -918,3 +919,49 @@ class TestIncRepair(Tester):
         self.assertRepairedAndUnrepaired(node1, 'ks')
         self.assertRepairedAndUnrepaired(node2, 'ks')
         self.assertRepairedAndUnrepaired(node3, 'ks')
+
+    @since('4.0')
+    def test_blocked_sstables(self):
+        """
+        We should fail an incremental repair wanting to include any pending sstables
+
+        see CASSANDRA-14763
+        """
+        self.cluster.populate(2)
+        node1, node2 = self.cluster.nodelist()
+        logger.debug("Setting up byteman on {}".format(node1.name))
+        # set up byteman
+        node1.byteman_port = '8100'
+        node1.import_config_files()
+        self.cluster.start(wait_for_binary_proto=True)
+
+        node1.stress(['write', 'n=10k', 'no-warmup', '-rate', 'threads=1', '-schema', 'replication(factor=3)'])
+        node1.byteman_submit(['./byteman/coordinatorsession_sleep_fail.btm'])
+        def node1_repair():
+            try:
+                node1.repair(options=['keyspace1', 'standard1'])
+            except:
+                pass
+
+        t = Thread(target=node1_repair)
+        t.start()
+        node1.watch_log_for('Validation of', filename='debug.log')
+        self.assertAllPendingRepairSSTables(node1, 'keyspace1')
+        self.assertAllPendingRepairSSTables(node2, 'keyspace1')
+        # now make sure starting a new repair over the same sstables
+        # throws an exception
+        got_exception = False
+        try:
+            node1.repair(options=['keyspace1', 'standard1'])
+        except:
+            got_exception = True
+        assert got_exception
+
+        t.join()
+        self.assertNoRepairedSSTables(node1, 'keyspace1')
+        self.assertNoRepairedSSTables(node2, 'keyspace1')
+
+        # and make sure we can repair once the initial repair has failed
+        node1.repair(options=['keyspace1', 'standard1'])
+        self.assertAllRepairedSSTables(node1, 'keyspace1')
+        self.assertAllRepairedSSTables(node2, 'keyspace1')

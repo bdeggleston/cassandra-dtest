@@ -1,0 +1,14 @@
+#
+# Sleep 20s and fail before proposing finalization
+#
+RULE sleep 20s and fail before proposing finalization
+CLASS org.apache.cassandra.repair.consistent.CoordinatorSession
+METHOD finalizePropose
+AT ENTRY
+# set flag to only run this rule once.
+IF NOT flagged("done")
+DO
+   flag("done");
+   Thread.sleep(20000);
+   throw new RuntimeException();
+ENDRULE
