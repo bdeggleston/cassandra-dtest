@@ -33,6 +33,65 @@ class ConsistentState(object):
     FAILED = 5
 
 
+class RepairedStat(object):
+
+    def __init__(self, keyspace, table, min_time, max_time, sections):
+        self.keyspace = keyspace
+        self.table = table
+        self.min_time = min_time
+        self.max_time = max_time
+        self.sections = sections
+
+    @classmethod
+    def parse_line(cls, line):
+        columns = line.split('|')
+        columns = [c.strip() for c in columns]
+        assert len(columns) in [4, 5]
+        sections = [c.strip() for c in columns[4].strip().split(', ') if c.strip()] if len(columns) == 5 else []
+        return RepairedStat(columns[0], columns[1], int(columns[2]), int(columns[3]), sections)
+
+    @classmethod
+    def parse_nodetool(cls, output):
+        lines = output.strip().split('\n')
+        return [RepairedStat.parse_line(l) for l in lines[1:]]
+
+    @classmethod
+    def get_for_table(cls, stats, keyspace, table):
+        filtered = [s for s in stats if s.keyspace == keyspace and s.table == table]
+        assert len(filtered) == 1
+        return filtered[0]
+
+
+class PendingStat(object):
+
+    def __init__(self, keyspace, table, size, unit, sstables, sessions):
+        self.keyspace = keyspace
+        self.table = table
+        self.size = size
+        self.unit = unit
+        self.sstables = sstables
+        self.sessions = sessions
+
+    @classmethod
+    def parse_line(cls, line):
+        columns = line.split('|')
+        columns = [c.strip() for c in columns]
+        stats = re.search(r'(\d+) (\w+) \((\d+) sstables / (\d+) sessions\)', columns[2])
+        assert stats
+        return PendingStat(columns[0], columns[1], int(stats[1]), stats[2], int(stats[3]), int(stats[4]))
+
+    @classmethod
+    def parse_nodetool(cls, output):
+        lines = output.strip().split('\n')
+        return [PendingStat.parse_line(l) for l in lines[1:]]
+
+    @classmethod
+    def get_for_table(cls, stats, keyspace, table):
+        filtered = [s for s in stats if s.keyspace == keyspace and s.table == table]
+        assert len(filtered) == 1
+        return filtered[0]
+
+
 class TestIncRepair(Tester):
 
     @pytest.fixture(autouse=True)
@@ -324,6 +383,139 @@ class TestIncRepair(Tester):
             line = lines[1]
             assert re.match(str(session_id), line)
             assert "FAILED" in line
+
+    @since('4.0')
+    def test_list_with_range(self):
+        """ 
+        Test that supplying a start and end token to the list 
+        command only returns sessions intersecting with that range 
+        """
+        self.fixture_dtest_setup.setup_overrides.cluster_options = ImmutableMapping({'hinted_handoff_enabled': 'false',
+                                                                                     'num_tokens': 1,
+                                                                                     'commitlog_sync_period_in_ms': 500})
+
+        self.init_default_config()
+        self.cluster.populate(3).start()
+        node1, node2, node3 = self.cluster.nodelist()
+
+        # make data inconsistent between nodes
+        session = self.patient_exclusive_cql_connection(node3)
+        session.execute("CREATE KEYSPACE ks WITH REPLICATION={'class':'SimpleStrategy', 'replication_factor': 3}")
+        session.execute("CREATE TABLE ks.tbl (k INT PRIMARY KEY, v INT)")
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin')
+            assert "no sessions" in out.stdout
+
+        for node in self.cluster.nodelist():
+            node.nodetool('repair ks -pr')
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --all')
+            lines = out.stdout.strip().split('\n')
+            assert len(lines[1:]) == 3
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --all --start-token=1 --end-token=2')
+            lines = out.stdout.strip().split('\n')
+            assert len(lines[1:]) == 1
+
+    @since('4.0')
+    def test_repaired_stats(self):
+        """ 
+        Test that supplying a start and end token to the list 
+        command only returns sessions intersecting with that range 
+        """
+        self.fixture_dtest_setup.setup_overrides.cluster_options = ImmutableMapping({'hinted_handoff_enabled': 'false',
+                                                                                     'num_tokens': 1,
+                                                                                     'commitlog_sync_period_in_ms': 500})
+
+        self.init_default_config()
+        self.cluster.populate(3).start()
+        node1, node2, node3 = self.cluster.nodelist()
+
+        # make data inconsistent between nodes
+        session = self.patient_exclusive_cql_connection(node3)
+        session.execute("CREATE KEYSPACE ks WITH REPLICATION={'class':'SimpleStrategy', 'replication_factor': 3}")
+        session.execute("CREATE TABLE ks.tbl (k INT PRIMARY KEY, v INT)")
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --summarize-repaired --verbose')
+            stats = RepairedStat.get_for_table(RepairedStat.parse_nodetool(out.stdout), 'ks', 'tbl')
+            assert stats.min_time == 0, out.stdout
+            assert stats.max_time == 0, out.stdout
+            assert len(stats.sections) == 0, out.stdout
+
+        for node in self.cluster.nodelist():
+            node.nodetool('repair ks -pr')
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --summarize-repaired --verbose')
+            stats = RepairedStat.get_for_table(RepairedStat.parse_nodetool(out.stdout), 'ks', 'tbl')
+            print (out.stdout)
+            assert stats.min_time > 0, out.stdout
+            assert stats.max_time > 0, out.stdout
+            assert len(stats.sections) == 3, out.stdout
+
+    @since('4.0')
+    def test_pending_stats_and_cleanup(self):
+        """ 
+        Test that supplying a start and end token to the list 
+        command only returns sessions intersecting with that range 
+        """
+        self.fixture_dtest_setup.setup_overrides.cluster_options = ImmutableMapping({'hinted_handoff_enabled': 'false',
+                                                                                     'num_tokens': 1,
+                                                                                     'commitlog_sync_period_in_ms': 500})
+
+        self.init_default_config()
+        self.cluster.populate(3, debug=True).start()
+        node1, node2, node3 = self.cluster.nodelist()
+
+        # make data inconsistent between nodes
+        session = self.patient_exclusive_cql_connection(node3)
+        session.execute("CREATE KEYSPACE ks WITH REPLICATION={'class':'SimpleStrategy', 'replication_factor': 3}")
+        session.execute("CREATE TABLE ks.tbl (k INT PRIMARY KEY, v INT)")
+
+        for i in range(10):
+            session.execute("INSERT INTO ks.tbl (k, v) VALUES ({}, {})".format(i, i))
+
+        for node in self.cluster.nodelist():
+            node.nodetool('flush')
+
+        for node in self.cluster.nodelist():
+            node.nodetool('disableautocompaction ks tbl')
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --summarize-pending ks tbl')
+            stats = PendingStat.parse_nodetool(out.stdout)[0]
+            assert stats.size == 0, out.stdout
+            assert stats.sstables == 0, out.stdout
+            assert stats.sessions == 0, out.stdout
+
+        for node in self.cluster.nodelist():
+            node.nodetool('repair ks -pr')
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --summarize-pending ks tbl')
+            stats = PendingStat.parse_nodetool(out.stdout)[0]
+            print (out.stdout)
+            assert stats.size > 0, out.stdout
+            assert stats.sstables > 0, out.stdout
+            assert stats.sessions == 3, out.stdout
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --cleanup ks tbl')
+            lines = out.stdout.strip().split('\n')
+            assert len(lines) == 3
+            ksLine = lines[-1]
+            assert [c.strip() for c in ksLine.split('|')] == ['ks', 'tbl', '3', '0']
+
+        for node in self.cluster.nodelist():
+            out = node.nodetool('repair_admin --summarize-pending ks tbl')
+            stats = PendingStat.parse_nodetool(out.stdout)[0]
+            assert stats.size == 0, out.stdout
+            assert stats.sstables == 0, out.stdout
+            assert stats.sessions == 0, out.stdout
 
     def test_sstable_marking(self):
         """
