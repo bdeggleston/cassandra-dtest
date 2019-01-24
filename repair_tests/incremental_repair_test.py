@@ -127,7 +127,7 @@ class TestIncRepair(Tester):
         """ Checks that no sstables are marked repaired, and none are marked pending repair """
         data = self._get_repaired_data(node, keyspace)
         assert all([t.repaired == 0 for t in data]), '{}'.format(data)
-        assert all([t.pending_id is None for t in data])
+        assert all([t.pending_id is None for t in data]), '{}'.format(data)
 
     def assertAllPendingRepairSSTables(self, node, keyspace, pending_id=None):
         """ Checks that no sstables are marked repaired, and all are marked pending repair """
@@ -1027,8 +1027,17 @@ class TestIncRepair(Tester):
         node1.repair(options=['ks', '--force'])
 
         # ... and verify nothing was promoted to repaired
-        self.assertNoRepairedSSTables(node1, 'ks')
-        self.assertNoRepairedSSTables(node2, 'ks')
+        for node in self.cluster.nodelist():
+            self.assertNoRepairedSSTables(node, 'ks')
+
+            if node == node2:
+                continue
+            # confirm repair state isn't updated
+            out = node1.nodetool('repair_admin --summarize-repaired --verbose')
+            stats = RepairedStat.get_for_table(RepairedStat.parse_nodetool(out.stdout), 'ks', 'tbl')
+            assert stats.min_time == 0, out.stdout
+            assert stats.max_time == 0, out.stdout
+            assert len(stats.sections) == 0, out.stdout
 
     @since('4.0')
     def test_force_with_none_down(self):
@@ -1084,8 +1093,15 @@ class TestIncRepair(Tester):
         node1.repair(options=['ks', '-hosts', ','.join([node1.address(), node2.address()])])
 
         # ... and verify nothing was promoted to repaired
-        self.assertNoRepairedSSTables(node1, 'ks')
-        self.assertNoRepairedSSTables(node2, 'ks')
+        for node in self.cluster.nodelist():
+            if node is not node3:
+                self.assertNoRepairedSSTables(node, 'ks')
+
+            out = node1.nodetool('repair_admin --summarize-repaired --verbose')
+            stats = RepairedStat.get_for_table(RepairedStat.parse_nodetool(out.stdout), 'ks', 'tbl')
+            assert stats.min_time == 0, out.stdout
+            assert stats.max_time == 0, out.stdout
+            assert len(stats.sections) == 0, out.stdout
 
     @since('4.0')
     def test_subrange(self):
