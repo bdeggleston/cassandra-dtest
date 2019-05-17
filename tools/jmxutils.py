@@ -35,8 +35,8 @@ def java_bin():
 
 
 def java_version():
-    out = subprocess.Popen('{} -version'.format(java_bin()),  stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.read()
-    result = re.search(r'[java|openjdk] version "?([0-9\._]+)"?', out)
+    out = subprocess.Popen([java_bin(), '-version'],  stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.read()
+    result = re.search(r'[java|openjdk] version "?([0-9\._]+)"?', str(out))
     if result is None:
         return None
 
