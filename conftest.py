@@ -24,6 +24,7 @@ from ccmlib.common import validate_install_dir, is_win, get_version_from_build
 from dtest_config import DTestConfig
 from dtest_setup import DTestSetup
 from dtest_setup_overrides import DTestSetupOverrides
+from tools.jmxutils import java_version
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +401,15 @@ def fixture_skip_version(request, fixture_dtest_setup):
         if version_to_skip == fixture_dtest_setup.dtest_config.cassandra_version_from_build:
             pytest.skip("Test marked not to run on version %s" % version_to_skip)
 
+@pytest.fixture(autouse=True)
+def fixture_skip_java9_plus(request, fixture_dtest_setup):
+    marker = request.node.get_closest_marker('skip_java9_plus')
+    if not marker:
+        return
+
+    version = java_version()
+    if version is not None and version > 8:
+        pytest.skip("Skipping test on java {}".format(version))
 
 @pytest.fixture(scope='session', autouse=True)
 def install_debugging_signal_handler():

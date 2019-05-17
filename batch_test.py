@@ -13,6 +13,8 @@ from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 
 since = pytest.mark.since
+skip_java9_plus = pytest.mark.skip_java9_plus
+
 logger = logging.getLogger(__name__)
 
 
@@ -289,6 +291,7 @@ class TestBatch(Tester):
         assert_one(session, "SELECT * FROM users", [0, 'Jack', 'Sparrow'])
         assert_one(session, "SELECT * FROM dogs", [0, 'Pluto'])
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     def test_logged_batch_compatibility_1(self):
         """
@@ -298,6 +301,7 @@ class TestBatch(Tester):
         """
         self._logged_batch_compatibility_test(0, 1, 'github:apache/cassandra-2.2', 2, 4)
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     def test_batchlog_replay_compatibility_1(self):
         """
@@ -307,6 +311,7 @@ class TestBatch(Tester):
         """
         self._batchlog_replay_compatibility_test(0, 1, 'github:apache/cassandra-2.2', 2, 4)
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     @pytest.mark.skipif(sys.platform == 'win32', reason='Windows production support only on 2.2+')
     def test_logged_batch_compatibility_2(self):
@@ -317,6 +322,7 @@ class TestBatch(Tester):
         """
         self._logged_batch_compatibility_test(0, 1, 'github:apache/cassandra-2.1', 2, 3)
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     @pytest.mark.skipif(sys.platform == 'win32', reason='Windows production support only on 2.2+')
     def test_logged_batch_compatibility_3(self):
@@ -336,6 +342,7 @@ class TestBatch(Tester):
         """
         self._logged_batch_compatibility_test(2, 2, 'github:apache/cassandra-2.2', 1, 4)
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     def test_batchlog_replay_compatibility_4(self):
         """
@@ -345,6 +352,7 @@ class TestBatch(Tester):
         """
         self._batchlog_replay_compatibility_test(2, 2, 'github:apache/cassandra-2.2', 1, 4)
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     @pytest.mark.skipif(sys.platform == 'win32', reason='Windows production support only on 2.2+')
     def test_logged_batch_compatibility_5(self):

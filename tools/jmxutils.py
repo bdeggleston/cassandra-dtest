@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import re
 import subprocess
 import urllib.request
 import urllib.parse
@@ -31,6 +32,21 @@ def java_bin():
         return os.path.join(os.environ['JAVA_HOME'], 'bin', 'java')
     else:
         return 'java'
+
+
+def java_version():
+    out = subprocess.Popen('{} -version'.format(java_bin()),  stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.read()
+    result = re.search(r'[java|openjdk] version "?([0-9\._]+)"?', out)
+    if result is None:
+        return None
+
+    version = result.group(1)
+    version = version.split('_')[0]
+    parts = version.split('.')
+    if parts[0] == '1':
+        return int(parts[1])
+    else:
+        return int(parts[0])
 
 
 def make_mbean(package, type, **kwargs):
