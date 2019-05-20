@@ -333,6 +333,7 @@ class TestBatch(Tester):
         """
         self._logged_batch_compatibility_test(0, 2, 'github:apache/cassandra-2.1', 1, 3)
 
+    @skip_java9_plus
     @since('3.0', max_version='3.x')
     def test_logged_batch_compatibility_4(self):
         """

@@ -186,6 +186,7 @@ class TestDeprecatedRepairAPI(Tester):
                 "ranges": m.group("ranges")}
 
 
+@pytest.mark.skip_java9_plus
 @since("3.0.16", max_version="4")
 class TestDeprecatedRepairNotifications(Tester):
     """
