@@ -317,6 +317,7 @@ class TestOfflineTools(Tester):
     # paths from those versions to 4.0 is invalid (and can only fail). There isn't currently
     # any difference between the 3.0 and 4.0 sstable format though, but when the version is
     # bumped for 4.0, remove the max_version & add a case for testing a 3.0 -> 4.0 upgrade
+    @pytest.mark.skip_java9_plus
     @since('2.2', max_version='3.X')
     def test_sstableupgrade(self):
         """

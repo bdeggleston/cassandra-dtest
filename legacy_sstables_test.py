@@ -8,6 +8,7 @@ since = pytest.mark.since
 
 class TestLegacySSTables(Tester):
 
+    @pytest.mark.skip_java9_plus
     @since('3.0', max_version='4')
     def test_14766(self):
         """

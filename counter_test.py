@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class TestCounters(Tester):
 
+    @pytest.mark.skip_java9_plus
     @since('3.0', max_version='3.12')
     def test_13691(self):
         """
