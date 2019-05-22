@@ -245,9 +245,8 @@ class TestDeprecatedRepairNotifications(Tester):
         logger.debug("Running repair on node1 using legacy nodetool (using options that will cause failure with error)")
         legacy_dirpath = ccmlib.repository.directory_name(legacy_version)
         legacy_nodetool_path = os.path.join(legacy_dirpath, "bin", "nodetool")
-        repair_env = self.get_legacy_environment(legacy_version, node_env=node1.get_env())
         repair_args = [legacy_nodetool_path, "-h", "localhost", "-p", str(node1.jmx_port), "repair", "-hosts", "127.0.0.2"]
-        p = subprocess.Popen(repair_args, env=repair_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        p = subprocess.Popen(repair_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         nodetool_stderr = None
         nodetool_returncode = None
         try:
