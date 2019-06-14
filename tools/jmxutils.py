@@ -169,6 +169,7 @@ def apply_jmx_authentication(node):
     ]
 
     common.replaces_in_file(node.envfilename(), replacement_list)
+    node.set_environment_variable('LOCAL_JMX', 'no')
 
 
 def remove_perf_disable_shared_mem(node):
