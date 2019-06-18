@@ -162,14 +162,16 @@ def apply_jmx_authentication(node):
          '#JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.password.file=/etc/cassandra/jmxremote.password"'),
         (r'#JVM_OPTS="\$JVM_OPTS -Dcassandra.jmx.remote.login.config=CassandraLogin"',
          'JVM_OPTS="$JVM_OPTS -Dcassandra.jmx.remote.login.config=CassandraLogin"'),
+        (r'#JVM_OPTS="\$JVM_OPTS -Djava.security.auth.login.config=\$CASSANDRA_CONF/cassandra-jaas.config"',
+         'JVM_OPTS="$JVM_OPTS -Djava.security.auth.login.config=$CASSANDRA_CONF/cassandra-jaas.config"'),
         (r'#JVM_OPTS="\$JVM_OPTS -Djava.security.auth.login.config=\$CASSANDRA_HOME/conf/cassandra-jaas.config"',
          'JVM_OPTS="$JVM_OPTS -Djava.security.auth.login.config=$CASSANDRA_HOME/conf/cassandra-jaas.config"'),
         (r'#JVM_OPTS="\$JVM_OPTS -Dcassandra.jmx.authorizer=org.apache.cassandra.auth.jmx.AuthorizationProxy"',
          'JVM_OPTS="$JVM_OPTS -Dcassandra.jmx.authorizer=org.apache.cassandra.auth.jmx.AuthorizationProxy"')
     ]
 
-    common.replaces_in_file(node.envfilename(), replacement_list)
     node.set_environment_variable('LOCAL_JMX', 'no')
+    common.replaces_in_file(node.envfilename(), replacement_list)
 
 
 def remove_perf_disable_shared_mem(node):
