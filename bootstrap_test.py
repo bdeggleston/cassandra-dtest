@@ -772,8 +772,13 @@ class TestBootstrap(Tester):
                       '-rate', 'threads=10'])
 
         node2 = new_node(cluster)
-        node2.set_configuration_options({'stream_throughput_outbound_megabits_per_sec': '1'})  # stream slowly
         node2.start()
+
+        for _ in range(30):  # wait until node2 shows up
+            ntout = node1.nodetool('status').stdout
+            if re.search(r'UJ\s+' + node2.ip_addr, ntout):
+                break
+            time.sleep(0.1)
 
         node3 = new_node(cluster, remote_debug_port='2003')
         try:
