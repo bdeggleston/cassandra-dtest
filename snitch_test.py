@@ -128,12 +128,12 @@ class TestGossipingPropertyFileSnitch(Tester):
         logger.debug(out)
 
         assert "/{}".format(NODE1_BROADCAST_ADDRESS) in out
-        assert re.search(r'INTERNAL_IP:\d+:' + NODE1_LISTEN_ADDRESS)
+        assert re.search(r'INTERNAL_IP:\d+:' + NODE1_LISTEN_ADDRESS, out)
         assert "/{}".format(NODE2_BROADCAST_ADDRESS) in out
-        assert re.search(r'INTERNAL_IP:\d+:' + NODE2_LISTEN_ADDRESS)
+        assert re.search(r'INTERNAL_IP:\d+:' + NODE2_LISTEN_ADDRESS, out)
         if running40:
-            assert re.search(r'INTERNAL_ADDRESS_AND_PORT:\d+:' + NODE1_40_LISTEN_ADDRESS)
-            assert re.search(r'INTERNAL_ADDRESS_AND_PORT:\d+:' + NODE2_40_LISTEN_ADDRESS)
+            assert re.search(r'INTERNAL_ADDRESS_AND_PORT:\d+:' + NODE1_40_LISTEN_ADDRESS, out)
+            assert re.search(r'INTERNAL_ADDRESS_AND_PORT:\d+:' + NODE2_40_LISTEN_ADDRESS, out)
 
 class TestDynamicEndpointSnitch(Tester):
     @pytest.mark.resource_intensive
